@@ -1,4 +1,4 @@
-// ===== PROTEÇÃO =====
+// ===== PROTEÇÃO GLOBAL =====
 if (global.__botRunning) process.exit();
 global.__botRunning = true;
 
@@ -13,10 +13,10 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID; // 👈 ID do bot
-const GUILD_ID = process.env.GUILD_ID;   // 👈 ID do servidor
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 
-const OWNER_USERNAME = "Vodka.wad";
+const OWNER_USERNAME = "vodka.wad";
 
 const client = new Client({
   intents: [
@@ -26,33 +26,30 @@ const client = new Client({
   ]
 });
 
+// 🔒 anti duplicação
+const processed = new Set();
+
 // ===== SLASH COMMANDS =====
 const commands = [
   new SlashCommandBuilder()
     .setName("perfil")
-    .setDescription("Ver perfil de um usuário")
+    .setDescription("Ver perfil")
     .addUserOption(opt =>
-      opt.setName("usuario")
-        .setDescription("Usuário")
-        .setRequired(false)
+      opt.setName("usuario").setDescription("Usuário").setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName("banner")
-    .setDescription("Ver banner de um usuário")
+    .setDescription("Ver banner")
     .addUserOption(opt =>
-      opt.setName("usuario")
-        .setDescription("Usuário")
-        .setRequired(false)
+      opt.setName("usuario").setDescription("Usuário").setRequired(false)
     )
-].map(cmd => cmd.toJSON());
+].map(c => c.toJSON());
 
-// ===== REGISTRAR COMANDOS =====
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
   try {
-    console.log("Registrando comandos...");
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
@@ -68,13 +65,12 @@ client.once("clientReady", () => {
   console.log("Bot online:", client.user.tag);
 });
 
-// ===== SLASH HANDLER =====
+// ===== SLASH =====
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const user = interaction.options.getUser("usuario") || interaction.user;
 
-  // ===== PERFIL =====
   if (interaction.commandName === "perfil") {
     const embed = new EmbedBuilder()
       .setTitle(`Perfil de ${user.username}`)
@@ -84,32 +80,35 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ===== BANNER =====
   if (interaction.commandName === "banner") {
-    const fetchedUser = await client.users.fetch(user.id, { force: true });
+    const fetched = await client.users.fetch(user.id, { force: true });
 
-    if (!fetchedUser.banner) {
+    if (!fetched.banner)
       return interaction.reply("Esse usuário não tem banner 😢");
-    }
-
-    const bannerURL = fetchedUser.bannerURL({ size: 1024 });
 
     const embed = new EmbedBuilder()
       .setTitle(`Banner de ${user.username}`)
-      .setImage(bannerURL)
+      .setImage(fetched.bannerURL({ size: 1024 }))
       .setColor(0x2b2d31);
 
     return interaction.reply({ embeds: [embed] });
   }
 });
 
-// ===== PREFIX COMMANDS =====
+// ===== MENSAGENS =====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // 🔒 PERMISSÃO
-  const isAdmin = message.member.permissions.has(PermissionsBitField.Flags.Administrator);
-  const isOwner = message.author.username === OWNER_USERNAME;
+  if (processed.has(message.id)) return;
+  processed.add(message.id);
+  setTimeout(() => processed.delete(message.id), 5000);
+
+  const isAdmin = message.member.permissions.has(
+    PermissionsBitField.Flags.Administrator
+  );
+
+  const isOwner =
+    message.author.username.toLowerCase() === OWNER_USERNAME.toLowerCase();
 
   if (!isAdmin && !isOwner) return;
 
@@ -133,6 +132,23 @@ client.on("messageCreate", async (message) => {
 
     await message.delete().catch(() => {});
     return message.channel.send({ embeds: [embed] });
+  }
+
+  // ===== !clear =====
+  if (message.content.startsWith("!clear ")) {
+    const num = parseInt(message.content.split(" ")[1]);
+
+    if (isNaN(num) || num <= 0 || num > 100) {
+      return message.reply("Use: !clear 1-100");
+    }
+
+    await message.delete().catch(() => {});
+
+    try {
+      await message.channel.bulkDelete(num, true);
+    } catch (err) {
+      console.log("Erro clear:", err);
+    }
   }
 });
 
